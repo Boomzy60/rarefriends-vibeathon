@@ -1,11 +1,11 @@
 // Automated playthrough with the SDK's mock wallet fixture: npm run build && node games/lantern-night/playtest.mjs [outdir] [width]
 import { testGame } from "@rarefriends/friendsdk/testing";
 
-const out = process.argv[2] ?? "./artifacts", width = Number(process.argv[3] ?? 960);
+const out = process.argv[2] ?? "./artifacts", width = Number(process.argv[3] ?? 960), height = Number(process.argv[4] ?? 800);
 const shot = (page, name) => page.locator(".rf-game-frame").screenshot({ path: `${out}/${width}-${name}.png` });
 
 console.log(await testGame(new URL(".", import.meta.url).pathname, {
-  width, timeout: 120_000,
+  width, height, timeout: 120_000,
   check: async ({ page, game }) => {
     const confirm = () => page.getByRole("button", { name: "Confirm preview", exact: true }).click();
     const buy = game.getByRole("button", { name: /Buy a lantern/ });

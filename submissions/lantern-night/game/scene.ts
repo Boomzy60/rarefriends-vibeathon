@@ -41,13 +41,22 @@ function seeded(seed: number) {
 }
 
 const rand = seeded(0x4c4e54);
-const STARS = Array.from({ length: 70 }, () => ({ x: Math.round(rand() * VIEW.width), y: Math.round(40 + rand() * 330), big: rand() > 0.8, phase: Math.floor(rand() * 8) }));
+const STARS = Array.from({ length: 110 }, () => ({ x: Math.round(rand() * VIEW.width), y: Math.round(-320 + rand() * 690), big: rand() > 0.8, phase: Math.floor(rand() * 8) }));
 const ROOFS = Array.from({ length: 9 }, (_, i) => ({ x: 40 + i * 105 + Math.round(rand() * 40), w: 22 + Math.round(rand() * 14), lit: rand() > 0.4 }));
-/** Fixed sky slots for kept gifts so each constellation grows stably. */
-const SKY_SLOTS = Array.from({ length: 4 }, (_, kind) => {
-  const pick = seeded(0x51 + kind * 97), cx = 150 + kind * 220, cy = 110 + (kind % 2) * 90;
-  return Array.from({ length: 30 }, (_, i) => ({ x: Math.round(cx + Math.cos(i * 2.4) * (18 + i * 5) + (pick() - 0.5) * 30), y: Math.round(cy + Math.sin(i * 2.4) * (10 + i * 2.2) + (pick() - 0.5) * 20) }));
-});
+/** Visible window onto the 960 × 640 world. Portrait frames crop the sides and extend the sky upward. */
+export type Layout = Readonly<{ width: number; height: number }>;
+export function layoutFor(aspect: number): Layout {
+  return aspect >= 1.2 ? { width: Math.round(640 * aspect), height: 640 } : { width: 480, height: Math.max(640, Math.round(480 / aspect)) };
+}
+
+/** Fixed sky slots for kept gifts so each constellation grows stably within the visible sky. */
+function skySlots(left: number, top: number, width: number) {
+  const skyHeight = 380 - top, spread = Math.max(0.55, width / 960);
+  return Array.from({ length: 4 }, (_, kind) => {
+    const pick = seeded(0x51 + kind * 97), cx = left + width * (0.16 + 0.23 * kind), cy = top + (width < 700 ? 160 : 100) + (kind % 2) * skyHeight * 0.25;
+    return Array.from({ length: 30 }, (_, i) => ({ x: Math.round(cx + (Math.cos(i * 2.4) * (18 + i * 5) + (pick() - 0.5) * 30) * spread), y: Math.round(cy + (Math.sin(i * 2.4) * (10 + i * 2.2) + (pick() - 0.5) * 20) * spread) }));
+  });
+}
 
 export const ease = (t: number) => 1 - (1 - Math.min(1, Math.max(0, t))) ** 3;
 export const riseMs = (reduced: boolean) => reduced ? TIMING.rise.reduced : TIMING.rise.full;
@@ -61,12 +70,15 @@ export function lanternPath(progress: number) {
   return { x: HELD.x + Math.sin(progress * 5.2) * 40 * progress, y: HELD.y - (HELD.y - SKY_TOP) * p, scale: 1.3 - 0.8 * p };
 }
 
-export function createScene(canvas: HTMLCanvasElement, sprites: GenerationSprites | null) {
+export function createScene(canvas: HTMLCanvasElement, sprites: GenerationSprites | null, layout: Layout = VIEW) {
   const context = canvas.getContext("2d");
   if (!context) throw new Error("This browser cannot draw the festival.");
   const ctx = context;
   const ratio = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
-  canvas.width = VIEW.width * ratio; canvas.height = VIEW.height * ratio;
+  canvas.width = Math.round(layout.width * ratio); canvas.height = Math.round(layout.height * ratio);
+  const offsetX = (layout.width - VIEW.width) / 2, offsetY = layout.height - VIEW.height;
+  const L = -offsetX, R = L + layout.width, T = -offsetY;
+  const SKY_SLOTS = skySlots(L, T, layout.width);
   let embers: Ember[] = [];
   const drifters: Drifter[] = [];
   let lastEmber = 0, previous = 0;
@@ -79,16 +91,17 @@ export function createScene(canvas: HTMLCanvasElement, sprites: GenerationSprite
   }
 
   function drawSky(frame: number) {
-    ctx.fillStyle = PAPER; ctx.fillRect(0, 0, VIEW.width, VIEW.height);
+    ctx.fillStyle = PAPER; ctx.fillRect(L, T, layout.width, layout.height);
     for (const star of STARS) {
       if ((frame + star.phase) % 8 === 0) continue; // one-bit twinkle: blink off briefly
       if (star.big) { px(star.x - 3, star.y, 7, 1); px(star.x, star.y - 3, 1, 7); } else px(star.x, star.y, 2, 2);
     }
     // Moon: outlined disc with a hatched shadow side
-    ctx.save(); ctx.beginPath(); ctx.arc(812, 96, 30, 0, Math.PI * 2); ctx.fillStyle = PAPER; ctx.fill(); ctx.clip();
-    for (let y = 64; y < 130; y += 4) px(812 + 6, y, 40, 1);
+    const mx = R - (layout.width < 700 ? 70 : 148), my = T + (layout.width < 700 ? 150 : 96);
+    ctx.save(); ctx.beginPath(); ctx.arc(mx, my, 30, 0, Math.PI * 2); ctx.fillStyle = PAPER; ctx.fill(); ctx.clip();
+    for (let y = my - 32; y < my + 34; y += 4) px(mx + 6, y, 40, 1);
     ctx.restore();
-    ctx.strokeStyle = INK; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(812, 96, 30, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = INK; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(mx, my, 30, 0, Math.PI * 2); ctx.stroke();
   }
 
   function drawLand() {
@@ -181,17 +194,18 @@ export function createScene(canvas: HTMLCanvasElement, sprites: GenerationSprite
     /** A launched lantern keeps drifting in the background for the rest of the session. */
     addDrifter(pattern: Pattern) {
       if (drifters.length >= 18) drifters.shift();
-      drifters.push({ x: 60 + Math.random() * 840, y: 130 + Math.random() * 230, speed: 0.08 + Math.random() * 0.1, size: 0.35 + Math.random() * 0.2, pattern });
+      drifters.push({ x: L + 40 + Math.random() * (layout.width - 80), y: T + 130 + Math.random() * (360 - T - 130), speed: 0.08 + Math.random() * 0.1, size: 0.35 + Math.random() * 0.2, pattern });
     },
     draw(now: number, state: SceneState) {
       const dt = previous ? Math.min(64, now - previous) : 16; previous = now;
       const frame = state.reducedMotion ? 1 : Math.floor(now / 250);
-      ctx.setTransform(canvas.width / VIEW.width, 0, 0, canvas.height / VIEW.height, 0, 0);
+      const scale = canvas.width / layout.width;
+      ctx.setTransform(scale, 0, 0, scale, offsetX * scale, offsetY * scale);
       ctx.imageSmoothingEnabled = false;
       drawSky(frame);
       drawConstellation(state.inventory);
       for (const drifter of drifters) {
-        if (!state.reducedMotion) { drifter.y -= drifter.speed * dt / 16; if (drifter.y < 20) drifter.y = 380; }
+        if (!state.reducedMotion) { drifter.y -= drifter.speed * dt / 16; if (drifter.y < T + 20) drifter.y = 380; }
         drawLantern(drifter.x + (state.reducedMotion ? 0 : Math.round(Math.sin(now / 1300 + drifter.x) * 6)), drifter.y, drifter.size, drifter.pattern, 1);
       }
       drawLand();
@@ -208,7 +222,7 @@ export function createScene(canvas: HTMLCanvasElement, sprites: GenerationSprite
         if (!state.reducedMotion && now - lastEmber > 60) { lastEmber = now; embers.push({ x: at.x + (Math.random() - 0.5) * 12, y: at.y + 22 * at.scale, vy: 0.8 + Math.random() * 0.7, life: 1 }); }
         if (progress < 0.75) {
           ctx.font = "bold 14px ui-monospace, SFMono-Regular, Menlo, monospace"; ctx.textAlign = "center";
-          const label = "0.1 RF wick burned", w = Math.round(ctx.measureText(label).width + 14), lx = Math.round(at.x + 60 * at.scale + w / 2), ly = Math.round(at.y);
+          const label = "0.1 RF wick burned", w = Math.round(ctx.measureText(label).width + 14), lx = Math.round(Math.min(at.x + 60 * at.scale + w / 2, R - w / 2 - 6)), ly = Math.round(at.y);
           px(lx - w / 2, ly - 12, w, 22, INK); px(lx - w / 2 + 2, ly - 10, w - 4, 18, PAPER);
           ctx.fillStyle = INK; ctx.fillText(label, lx, ly + 3);
         }

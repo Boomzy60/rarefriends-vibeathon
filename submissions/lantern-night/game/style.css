@@ -48,15 +48,24 @@
   .ln-hud{inset:6px 6px auto;gap:4px}
   .ln-pill{padding:4px 6px}
   .ln-game button{padding:4px 8px}
+  .ln-controls{bottom:48px;gap:4px}
+  .ln-hold{min-width:180px;padding:12px 10px!important}
+  .ln-status{font-size:10px}
+  .ln-reveal-card{top:8px;width:calc(100% - 16px);box-shadow:3px 3px 0 #111}
+  .ln-reveal-card header{padding:4px 8px}
+  .ln-reveal-card h2{font-size:13px}
+  .ln-reveal{padding:4px 8px 8px}
+  .ln-hide-phone{display:none!important}
+  .ln-value{font-size:16px}
+}
+/* A short 3:2 strip on a narrow landscape screen: move controls beside the Friend and compact the reveal. */
+@media (max-width:620px) and (min-aspect-ratio:1/1){
   .ln-controls{left:auto;right:6px;top:40px;bottom:auto;transform:none;width:136px;gap:2px;align-items:stretch}
   .ln-buy{flex-direction:column;gap:4px}
   .ln-hold{min-width:0;padding:10px 6px!important}
-  .ln-status{font-size:10px}
-  .ln-reveal-card{top:4px;width:calc(100% - 8px);box-shadow:3px 3px 0 #111}
-  .ln-reveal-card header{padding:3px 8px}
-  .ln-reveal-card h2{font-size:12px}
+  .ln-reveal-card{top:4px;width:calc(100% - 8px)}
   .ln-reveal{padding:2px 8px 6px}.ln-reveal p{margin:1px 0}
-  .ln-hide-phone,.ln-rarity{display:none!important}
+  .ln-rarity{display:none!important}
   .ln-value{font-size:13px}
   .ln-row{margin-top:3px}
 }

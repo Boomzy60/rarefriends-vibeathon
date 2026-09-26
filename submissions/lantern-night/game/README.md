@@ -37,6 +37,10 @@ the system setting by default) and a **One tap lights a lantern** option for
 players who can't press and hold.
 Gameplay stops while the runtime shows a menu or confirmation.
 
+## Layout
+
+`host.css` gives portrait phones a tall 3:4 frame, or 2:3 on tall screens, in place of the default 3:2 strip. The canvas measures its frame and redraws the scene for that shape. Desktop keeps the 960 × 640 reference frame.
+
 ## Rules and economy
 
 | Rule | Exact value |

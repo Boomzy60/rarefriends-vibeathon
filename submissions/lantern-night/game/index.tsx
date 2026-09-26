@@ -7,7 +7,7 @@ import { expectedReward, maximumPrize, type GamePlay, type GameSnapshot } from "
 import { createFriendReader, type GenerationSprites } from "@rarefriends/friendsdk/sprites";
 import { createFriendSoundKit, type FriendSoundCue, type FriendSoundKit } from "@rarefriends/friendsdk/sounds";
 import { GameMenu } from "@rarefriends/friendsdk/frame";
-import { createScene, descendMs, riseMs, TIMING, type Pattern, type Phase, type SceneState } from "./scene.js";
+import { createScene, descendMs, layoutFor, riseMs, TIMING, type Layout, type Pattern, type Phase, type SceneState } from "./scene.js";
 import "@rarefriends/friendsdk/frame.css";
 import "./style.css";
 
@@ -50,6 +50,7 @@ export default function LanternNight({ friendId, client, paused }: GameComponent
   const [panel, setPanel] = useState<Panel>(null), [busy, setBusy] = useState(false);
   const [error, setError] = useState(""), [message, setMessage] = useState("");
   const [muted, setMuted] = useState(true), [reducedMotion, setReducedMotion] = useState(false), [tapToLight, setTapToLight] = useState(false);
+  const [layout, setLayout] = useState<Layout>({ width: 960, height: 640 });
   const [lit, setLit] = useState(0), [paper, setPaper] = useState(0), [charging, setCharging] = useState(false);
   const canvas = useRef<HTMLCanvasElement>(null), sound = useRef<FriendSoundKit | null>(null);
   const locked = useRef(false), epoch = useRef(0);
@@ -90,12 +91,26 @@ export default function LanternNight({ friendId, client, paused }: GameComponent
       holding: Boolean(snapshot && snapshot.consumables > 0n) };
   }, [paused, reducedMotion, snapshot, paper]);
 
+  // Match the scene to the frame's shape (wide on desktop, tall on portrait phones).
+  useEffect(() => {
+    const node = canvas.current;
+    if (!node || !ready) return;
+    const measure = () => {
+      if (!node.clientWidth || !node.clientHeight) return;
+      const next = layoutFor(node.clientWidth / node.clientHeight);
+      setLayout(current => current.width === next.width && current.height === next.height ? current : next);
+    };
+    measure();
+    const observer = new ResizeObserver(measure); observer.observe(node);
+    return () => observer.disconnect();
+  }, [ready]);
+
   // Animation loop on a pausable scene clock.
   useEffect(() => {
     const node = canvas.current;
     if (!node || !sprites || !ready) return;
     let scene: ReturnType<typeof createScene>;
-    try { scene = createScene(node, sprites); } catch (cause) { setError(cause instanceof Error ? cause.message : "Cannot draw."); return; }
+    try { scene = createScene(node, sprites, layout); } catch (cause) { setError(cause instanceof Error ? cause.message : "Cannot draw."); return; }
     sceneRef.current = scene;
     let frame = 0, previous = 0;
     const render = (now: number) => {
@@ -114,7 +129,7 @@ export default function LanternNight({ friendId, client, paused }: GameComponent
     };
     frame = requestAnimationFrame(render);
     return () => { cancelAnimationFrame(frame); sceneRef.current = null; };
-  }, [sprites, ready]);
+  }, [sprites, ready, layout]);
 
   onPhaseEnd.current = ended => {
     if (ended === "rising") moveTo("descending");

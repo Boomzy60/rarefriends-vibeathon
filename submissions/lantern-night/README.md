@@ -44,13 +44,13 @@ Open `http://localhost:4173`, connect your wallet and select your Friend. The SD
 4. Choose **Keep in the sky** to add the gift to your constellation, or redeem it for its fixed value. **Sky** lists every kept gift, and you can redeem them at any time.
 5. **Festival** shows the exact odds and lets you switch lantern paper patterns (striped, dotted, checked), which unlock after 3, 8 and 15 lanterns lit.
 
-Settings include sound on/off (muted by default), **Reduce motion** (it follows the system setting by default) and **One tap lights a lantern** for players who can't press and hold. Everything stays inside the SDK's 960 × 640 container. On phones, the controls move beside the Friend so they don't cover it.
+Settings include sound on/off (muted by default), **Reduce motion** (it follows the system setting by default) and **One tap lights a lantern** for players who can't press and hold. Everything stays inside the SDK game container: 960 × 640 on desktop. On portrait phones, an optional `host.css` switches the container to a tall 3:4 or 2:3 frame, and the scene redraws for that shape (taller sky, cropped sides) instead of stretching. On a narrow landscape screen, the controls move beside the Friend.
 
 | Lighting | Rising, wick burning | Gift coming down | Reveal |
 |---|---|---|---|
 | ![Lighting](media/lighting.png) | ![Lantern rising](media/lantern-rising.png) | ![Gift descending](media/gift-descending.png) | ![Reveal](media/reveal.png) |
 
-| Night sky after 6 lanterns | Rules and papers | Phone (360 px) |
+| Night sky after 6 lanterns | Rules and papers | Phone (390 × 844, portrait) |
 |---|---|---|
 | ![Night sky](media/night-sky.png) | ![Festival rules](media/festival-rules.png) | ![Phone reveal](media/phone-reveal.png) |
 
@@ -87,8 +87,8 @@ These were run from a FriendSDK v0.1.2 checkout with the game at `games/lantern-
 - `npm test`: 116 tests, 114 passed, 0 failed, 2 skipped (Foundry contract integration, not installed).
 - `npm run typecheck`, plus a strict TypeScript check of the game sources: passed.
 - `npm run check:games` and `npx friendsdk check games/lantern-night`: valid, with expected reward 0.85 RF and maximum 3 RF.
-- `npx friendsdk test games/lantern-night` at 960 px and at 360 px: passed.
-- `node games/lantern-night/playtest.mjs`: passed at 960 px and 360 px. This scripted mock-wallet playthrough covers buying, confirming that an early release doesn't light the lantern, lighting with Space and with Enter, the reveal, keeping gifts, lighting five more lanterns, unlocking and choosing a paper, the Sky and Festival panels, the sound and reduced-motion settings, and a check that the burn counter reads 0.6 RF.
+- `npx friendsdk test games/lantern-night` at 960 px, 390 px and 360 px: passed.
+- `node games/lantern-night/playtest.mjs`: passed at 960 × 800, 390 × 844 (iPhone portrait), 360 × 800 and 640 × 360 (landscape phone). This scripted mock-wallet playthrough covers buying, confirming that an early release doesn't light the lantern, lighting with Space and with Enter, the reveal, keeping gifts, lighting five more lanterns, unlocking and choosing a paper, the Sky and Festival panels, the sound and reduced-motion settings, and a check that the burn counter reads 0.6 RF.
 - `npx friendsdk build games/lantern-night`: built.
 
 The browser tests use the SDK's mocked wallet and RPC with sample Friend #7730. **A real-wallet playthrough has not been done yet**, because the builder does not currently hold a Generations NFT. The ownership gate is the unmodified SDK runtime.
