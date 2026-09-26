@@ -10,7 +10,7 @@ Your Rare Friend hosts a night-sky lantern festival. Every lantern costs RF to l
 
 [Source code](game/) · [Game rules (`game.json`)](game/game.json) · [Game README](game/README.md) · [Demo video (50 s, mock wallet)](media/lantern-night-demo.webm)
 
-**Playable preview:** _GitHub Pages link to be added._ It requires a browser wallet on Robinhood mainnet (chain 4663) holding a hardwired Generations NFT (generation ≥ 1). The economy is simulated: no RF funding, private key or transaction signature is needed.
+**Playable preview:** https://boomzy60.github.io/rarefriends-vibeathon/ (built from the `gh-pages` branch). It requires a browser wallet on Robinhood mainnet (chain 4663) holding a hardwired Generations NFT (generation ≥ 1). The economy is simulated: no RF funding, private key or transaction signature is needed.
 
 ## Why it fits
 
