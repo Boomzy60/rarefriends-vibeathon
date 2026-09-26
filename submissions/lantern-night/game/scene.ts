@@ -1,9 +1,11 @@
-/** Canvas renderer for Lantern Night. Pure presentation: outcomes come from the SDK client. */
+/** Canvas renderer for Lantern Night, in the SDK's one-bit style: white paper, black ink, one signal green. */
 import { spriteFrame, type GenerationSprites } from "@rarefriends/friendsdk/sprites";
 
 export const VIEW = { width: 960, height: 640 } as const;
-export const FRIEND = { x: 480, feet: 484, scale: 6 } as const;
+export const FRIEND = { x: 480, feet: 470, scale: 5 } as const;
+export const INK = "#111", PAPER = "#fff", SIGNAL = "#ccff00";
 export type Phase = "idle" | "charging" | "rising" | "descending" | "reveal";
+export type Pattern = "plain" | "stripes" | "checks" | "dots";
 
 export type SceneState = Readonly<{
   phase: Phase;
@@ -13,7 +15,7 @@ export type SceneState = Readonly<{
   outcome: number | null;
   holding: boolean;
   inventory: readonly number[];
-  paper: string;
+  pattern: Pattern;
   reducedMotion: boolean;
 }>;
 
@@ -23,15 +25,15 @@ export const TIMING = {
   descend: { full: 1500, reduced: 500 },
 } as const;
 
-export const GIFT_STYLE = [
-  { color: "#fff3b0", glow: "rgba(255,243,176,0.45)" },
-  { color: "#dfe7ff", glow: "rgba(200,215,255,0.5)" },
-  { color: "#8ee7ff", glow: "rgba(142,231,255,0.55)" },
-  { color: "#ffd24a", glow: "rgba(255,196,64,0.8)" },
+/** 9 × 9 one-bit gift icons, drawn like the canonical Friend sprites (black mask, white halo). */
+const ICONS = [
+  ["....#....", "....#....", "...###...", "#########", ".#######.", "..#####..", ".###.###.", ".##...##.", "#.......#"],
+  ["..#####..", ".###.....", "###......", "###......", "###......", "###......", "###......", ".###.....", "..#####.."],
+  ["......#.#", ".....#.#.", "....#.#..", "..###.#..", ".#####...", "#######..", "#######..", ".#####...", "..###...."],
 ] as const;
 
-type Ember = { x: number; y: number; vx: number; vy: number; life: number };
-type Drifter = { x: number; y: number; speed: number; sway: number; size: number; paper: string };
+type Ember = { x: number; y: number; vy: number; life: number };
+type Drifter = { x: number; y: number; speed: number; size: number; pattern: Pattern };
 
 function seeded(seed: number) {
   let value = seed >>> 0;
@@ -39,25 +41,24 @@ function seeded(seed: number) {
 }
 
 const rand = seeded(0x4c4e54);
-const STARS = Array.from({ length: 140 }, () => ({ x: rand() * VIEW.width, y: rand() * 380, r: rand() * 1.4 + 0.3, phase: rand() * 6.28 }));
-const WINDOWS = Array.from({ length: 26 }, () => ({ x: rand() * VIEW.width, y: 452 + rand() * 30, w: 2 + rand() * 3 }));
-/** Fixed sky slots for kept gifts so the constellation grows stably. */
+const STARS = Array.from({ length: 70 }, () => ({ x: Math.round(rand() * VIEW.width), y: Math.round(40 + rand() * 330), big: rand() > 0.8, phase: Math.floor(rand() * 8) }));
+const ROOFS = Array.from({ length: 9 }, (_, i) => ({ x: 40 + i * 105 + Math.round(rand() * 40), w: 22 + Math.round(rand() * 14), lit: rand() > 0.4 }));
+/** Fixed sky slots for kept gifts so each constellation grows stably. */
 const SKY_SLOTS = Array.from({ length: 4 }, (_, kind) => {
-  const pick = seeded(0x51 + kind * 97);
-  return Array.from({ length: 40 }, () => ({ x: 40 + pick() * 880, y: 70 + pick() * 250, phase: pick() * 6.28 }));
+  const pick = seeded(0x51 + kind * 97), cx = 150 + kind * 220, cy = 110 + (kind % 2) * 90;
+  return Array.from({ length: 30 }, (_, i) => ({ x: Math.round(cx + Math.cos(i * 2.4) * (18 + i * 5) + (pick() - 0.5) * 30), y: Math.round(cy + Math.sin(i * 2.4) * (10 + i * 2.2) + (pick() - 0.5) * 20) }));
 });
 
 export const ease = (t: number) => 1 - (1 - Math.min(1, Math.max(0, t))) ** 3;
 export const riseMs = (reduced: boolean) => reduced ? TIMING.rise.reduced : TIMING.rise.full;
 export const descendMs = (reduced: boolean) => reduced ? TIMING.descend.reduced : TIMING.descend.full;
 
-/** Held lantern position above the Friend's head. */
-const HELD = { x: FRIEND.x, y: FRIEND.feet - 136 };
-const SKY_TOP = 96;
+const HELD = { x: FRIEND.x, y: FRIEND.feet - 118 };
+const SKY_TOP = 70;
 
 export function lanternPath(progress: number) {
   const p = ease(progress);
-  return { x: HELD.x + Math.sin(progress * 5.2) * 38 * progress, y: HELD.y - (HELD.y - SKY_TOP) * p, scale: 1 - 0.55 * p };
+  return { x: HELD.x + Math.sin(progress * 5.2) * 40 * progress, y: HELD.y - (HELD.y - SKY_TOP) * p, scale: 1.3 - 0.8 * p };
 }
 
 export function createScene(canvas: HTMLCanvasElement, sprites: GenerationSprites | null) {
@@ -68,170 +69,160 @@ export function createScene(canvas: HTMLCanvasElement, sprites: GenerationSprite
   canvas.width = VIEW.width * ratio; canvas.height = VIEW.height * ratio;
   let embers: Ember[] = [];
   const drifters: Drifter[] = [];
-  let lastEmber = 0;
+  let lastEmber = 0, previous = 0;
 
-  function drawSky(now: number, reduced: boolean) {
-    const sky = ctx.createLinearGradient(0, 0, 0, VIEW.height);
-    sky.addColorStop(0, "#050819"); sky.addColorStop(0.45, "#141a45"); sky.addColorStop(0.72, "#3b2a5c"); sky.addColorStop(0.8, "#5a3a5e");
-    ctx.fillStyle = sky; ctx.fillRect(0, 0, VIEW.width, VIEW.height);
-    ctx.fillStyle = "#fff";
+  const px = (x: number, y: number, w: number, h: number, color = INK) => { ctx.fillStyle = color; ctx.fillRect(Math.round(x), Math.round(y), w, h); };
+
+  function dottedLine(x1: number, y1: number, x2: number, y2: number, gap = 10) {
+    const steps = Math.max(1, Math.floor(Math.hypot(x2 - x1, y2 - y1) / gap));
+    for (let i = 0; i <= steps; i++) px(x1 + (x2 - x1) * i / steps - 1, y1 + (y2 - y1) * i / steps - 1, 2, 2);
+  }
+
+  function drawSky(frame: number) {
+    ctx.fillStyle = PAPER; ctx.fillRect(0, 0, VIEW.width, VIEW.height);
     for (const star of STARS) {
-      ctx.globalAlpha = reduced ? 0.7 : 0.45 + 0.4 * Math.sin(now / 900 + star.phase);
-      ctx.fillRect(star.x, star.y, star.r, star.r);
+      if ((frame + star.phase) % 8 === 0) continue; // one-bit twinkle: blink off briefly
+      if (star.big) { px(star.x - 3, star.y, 7, 1); px(star.x, star.y - 3, 1, 7); } else px(star.x, star.y, 2, 2);
     }
-    ctx.globalAlpha = 1;
-    // Moon
-    const moon = ctx.createRadialGradient(812, 92, 4, 812, 92, 90);
-    moon.addColorStop(0, "rgba(255,244,214,0.35)"); moon.addColorStop(1, "rgba(255,244,214,0)");
-    ctx.fillStyle = moon; ctx.fillRect(700, 0, 230, 200);
-    ctx.fillStyle = "#fff4d6"; ctx.beginPath(); ctx.arc(812, 92, 26, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = "#141a45"; ctx.beginPath(); ctx.arc(824, 84, 22, 0, Math.PI * 2); ctx.fill();
+    // Moon: outlined disc with a hatched shadow side
+    ctx.save(); ctx.beginPath(); ctx.arc(812, 96, 30, 0, Math.PI * 2); ctx.fillStyle = PAPER; ctx.fill(); ctx.clip();
+    for (let y = 64; y < 130; y += 4) px(812 + 6, y, 40, 1);
+    ctx.restore();
+    ctx.strokeStyle = INK; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(812, 96, 30, 0, Math.PI * 2); ctx.stroke();
   }
 
   function drawLand() {
-    ctx.fillStyle = "#1c1840";
-    ctx.beginPath(); ctx.moveTo(0, 470);
-    ctx.bezierCurveTo(180, 420, 330, 470, 520, 448); ctx.bezierCurveTo(700, 428, 820, 460, 960, 440);
-    ctx.lineTo(960, 640); ctx.lineTo(0, 640); ctx.fill();
-    ctx.fillStyle = "#ffc76b";
-    for (const light of WINDOWS) ctx.fillRect(light.x, light.y, light.w, light.w);
-    ctx.fillStyle = "#0b0a22";
-    ctx.beginPath(); ctx.moveTo(0, 548);
-    ctx.bezierCurveTo(200, 505, 330, 478, 480, 478); ctx.bezierCurveTo(640, 478, 780, 515, 960, 548);
-    ctx.lineTo(960, 640); ctx.lineTo(0, 640); ctx.fill();
-    // Grass tufts on the hill edge
-    ctx.strokeStyle = "#221f4d"; ctx.lineWidth = 2;
-    for (let x = 300; x < 680; x += 23) { ctx.beginPath(); ctx.moveTo(x, 481 + Math.abs(x - 480) / 14); ctx.lineTo(x + 4, 472 + Math.abs(x - 480) / 14); ctx.stroke(); }
-  }
-
-  function glow(x: number, y: number, radius: number, color: string) {
-    const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
-    gradient.addColorStop(0, color); gradient.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = gradient; ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
-  }
-
-  function drawLantern(x: number, y: number, scale: number, paper: string, light: number) {
-    if (light > 0) glow(x, y, 70 * scale * (0.6 + light * 0.6), `rgba(255,180,90,${0.55 * light})`);
-    const w = 30 * scale, top = 22 * scale, h = 38 * scale;
-    ctx.fillStyle = paper; ctx.globalAlpha = 0.45 + 0.55 * light;
-    ctx.beginPath();
-    ctx.moveTo(x - top / 2, y - h / 2); ctx.lineTo(x + top / 2, y - h / 2);
-    ctx.quadraticCurveTo(x + w / 2 + 4 * scale, y, x + w / 2 - 2 * scale, y + h / 2);
-    ctx.lineTo(x - w / 2 + 2 * scale, y + h / 2);
-    ctx.quadraticCurveTo(x - w / 2 - 4 * scale, y, x - top / 2, y - h / 2);
-    ctx.fill(); ctx.globalAlpha = 1;
-    if (light > 0) { ctx.fillStyle = `rgba(255,250,220,${0.7 * light})`; ctx.fillRect(x - 4 * scale, y - 6 * scale, 8 * scale, 16 * scale); }
-    ctx.strokeStyle = "rgba(60,20,20,0.5)"; ctx.lineWidth = Math.max(1, scale);
-    ctx.beginPath(); ctx.moveTo(x, y - h / 2); ctx.lineTo(x, y + h / 2); ctx.stroke();
-    ctx.fillStyle = "#3a1f1f"; ctx.fillRect(x - w / 2 + 2 * scale, y + h / 2, w - 4 * scale, 3 * scale);
-  }
-
-  function drawGift(kind: number, x: number, y: number, size: number, alpha = 1) {
-    const style = GIFT_STYLE[kind] ?? GIFT_STYLE[0];
-    ctx.globalAlpha = alpha;
-    glow(x, y, size * 2.6, style.glow);
-    ctx.fillStyle = style.color; ctx.beginPath();
-    if (kind === 0) {
-      for (let i = 0; i < 10; i++) { const r = i % 2 ? size * 0.45 : size; const a = -Math.PI / 2 + i * Math.PI / 5; ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r); }
-      ctx.fill();
-    } else if (kind === 1) {
-      ctx.arc(x, y, size, 0, Math.PI * 2); ctx.fill();
-      ctx.globalCompositeOperation = "destination-out"; ctx.beginPath(); ctx.arc(x + size * 0.45, y - size * 0.3, size * 0.85, 0, Math.PI * 2); ctx.fill();
-      ctx.globalCompositeOperation = "source-over";
-    } else if (kind === 2) {
-      const tail = ctx.createLinearGradient(x, y, x - size * 4, y - size * 2);
-      tail.addColorStop(0, style.color); tail.addColorStop(1, "rgba(142,231,255,0)");
-      ctx.fillStyle = tail; ctx.moveTo(x, y - size * 0.6); ctx.lineTo(x - size * 4, y - size * 2); ctx.lineTo(x, y + size * 0.6); ctx.fill();
-      ctx.fillStyle = style.color; ctx.beginPath(); ctx.arc(x, y, size * 0.7, 0, Math.PI * 2); ctx.fill();
-    } else {
-      ctx.globalAlpha = 1; drawLantern(x, y, size / 14, "#ffd24a", 1); ctx.globalAlpha = alpha;
+    // Distant ridge with tiny rooftops
+    ctx.fillStyle = PAPER; ctx.strokeStyle = INK; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(0, 420); ctx.bezierCurveTo(200, 390, 330, 424, 520, 404); ctx.bezierCurveTo(700, 386, 820, 414, 960, 398);
+    ctx.lineTo(960, 640); ctx.lineTo(0, 640); ctx.closePath(); ctx.fill(); ctx.stroke();
+    for (const roof of ROOFS) {
+      const base = Math.round(418 + Math.sin(roof.x / 90) * 8);
+      ctx.fillStyle = PAPER; ctx.beginPath(); ctx.moveTo(roof.x, base); ctx.lineTo(roof.x + roof.w / 2, base - 12); ctx.lineTo(roof.x + roof.w, base); ctx.lineTo(roof.x + roof.w, base + 12); ctx.lineTo(roof.x, base + 12); ctx.closePath(); ctx.fill(); ctx.stroke();
+      if (roof.lit) px(roof.x + roof.w / 2 - 3, base + 3, 6, 6, SIGNAL);
     }
-    ctx.globalAlpha = 1;
+    // Floating hill, echoing the SDK island: white top, dash texture, black extruded edge
+    const cx = 480, cy = 488, rx = 300, ry = 58, depth = 16;
+    ctx.fillStyle = INK; ctx.beginPath(); ctx.ellipse(cx, cy + depth, rx, ry, 0, 0, Math.PI); ctx.lineTo(cx - rx, cy); ctx.ellipse(cx, cy, rx, ry, 0, Math.PI, 0, true); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = PAPER; ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    for (let i = 1; i < 12; i++) { const a = Math.PI * i / 12; px(cx - Math.cos(a) * rx, cy + Math.sin(a) * ry + 3, 2, depth - 4, PAPER); }
+    const dashes = seeded(9);
+    for (let i = 0; i < 46; i++) {
+      const a = dashes() * Math.PI * 2, r = Math.sqrt(dashes()) * 0.88;
+      const x = cx + Math.cos(a) * rx * r, y = cy + Math.sin(a) * ry * r;
+      if (Math.abs(x - cx) > 50 || y > cy + 10) px(x, y, 6, 2);
+    }
+  }
+
+  function fillPattern(pattern: Pattern, x: number, y: number, w: number, h: number, step: number) {
+    if (pattern === "stripes") for (let yy = y; yy < y + h; yy += step) px(x, yy, w, Math.max(1, Math.round(step / 3)));
+    else if (pattern === "checks") for (let row = 0, yy = y; yy < y + h; yy += step, row++) for (let xx = x + (row % 2) * step; xx < x + w; xx += step * 2) px(xx, yy, step, step);
+    else if (pattern === "dots") for (let yy = y + step / 2; yy < y + h; yy += step) for (let xx = x + step / 2; xx < x + w; xx += step) px(xx, yy, 2, 2);
+  }
+
+  /** `light` 0..1 fills the paper with signal green from the bottom up; a lit lantern throws pixel rays. */
+  function drawLantern(x: number, y: number, scale: number, pattern: Pattern, light: number, now = 0, rays = false) {
+    const w = 30 * scale, top = 20 * scale, h = 38 * scale, left = x - w / 2, upper = y - h / 2;
+    const body = new Path2D();
+    body.moveTo(x - top / 2, upper); body.lineTo(x + top / 2, upper);
+    body.quadraticCurveTo(x + w / 2 + 4 * scale, y, x + w / 2 - 2 * scale, y + h / 2);
+    body.lineTo(x - w / 2 + 2 * scale, y + h / 2);
+    body.quadraticCurveTo(x - w / 2 - 4 * scale, y, x - top / 2, upper); body.closePath();
+    if (rays && light >= 1) {
+      const turn = now / 900;
+      for (let i = 0; i < 8; i++) { const a = turn + i * Math.PI / 4; dottedLine(x + Math.cos(a) * w * 0.85, y + Math.sin(a) * h * 0.75, x + Math.cos(a) * w * 1.3, y + Math.sin(a) * h * 1.1, 6); }
+    }
+    ctx.save(); ctx.fillStyle = PAPER; ctx.fill(body); ctx.clip(body);
+    if (light > 0) { ctx.fillStyle = SIGNAL; ctx.fillRect(left - 6, y + h / 2 - (h + 2) * light, w + 12, (h + 2) * light); }
+    fillPattern(pattern, left - 6, upper, w + 12, h, Math.max(3, Math.round(6 * scale)));
+    ctx.restore();
+    ctx.strokeStyle = INK; ctx.lineWidth = Math.max(1.5, 2 * scale); ctx.stroke(body);
+    px(x - w / 2 + 3 * scale, y + h / 2, w - 6 * scale, Math.max(2, 4 * scale));
+    if (light >= 1) px(x - 2 * scale, y + h / 2 - 9 * scale, 4 * scale, 6 * scale); // the wick
+  }
+
+  function drawIcon(kind: number, x: number, y: number, pixel: number, now = 0) {
+    if (kind === 3) { drawLantern(x, y, pixel / 4, "plain", 1, now, true); return; }
+    const rows = ICONS[kind] ?? ICONS[0], left = Math.round(x - 4.5 * pixel), top = Math.round(y - 4.5 * pixel);
+    rows.forEach((row, py) => [...row].forEach((cell, pxl) => { if (cell === "#") px(left + pxl * pixel - pixel, top + py * pixel - pixel, pixel * 3, pixel * 3, PAPER); }));
+    rows.forEach((row, py) => [...row].forEach((cell, pxl) => { if (cell === "#") px(left + pxl * pixel, top + py * pixel, pixel, pixel); }));
   }
 
   function drawFriend(now: number, state: SceneState) {
-    const celebrating = state.phase === "reveal" && state.outcome !== null;
-    const hop = celebrating && !state.reducedMotion ? Math.abs(Math.sin(now / (state.outcome! >= 2 ? 140 : 220))) * (state.outcome! >= 2 ? 26 : 12) : 0;
-    const bob = state.phase === "charging" && !state.reducedMotion ? Math.sin(now / 90) * 1.5 : 0;
-    const size = 16 * FRIEND.scale, left = FRIEND.x - size / 2, top = FRIEND.feet - size + 6 - hop + bob;
-    // Shadow
-    ctx.fillStyle = "rgba(0,0,0,0.35)"; ctx.beginPath(); ctx.ellipse(FRIEND.x, FRIEND.feet + 2, 34 - hop / 3, 7, 0, 0, Math.PI * 2); ctx.fill();
+    const celebrating = state.phase === "reveal" && state.outcome !== null && !state.reducedMotion;
+    const big = (state.outcome ?? 0) >= 2;
+    const hop = celebrating ? Math.round(Math.abs(Math.sin(now / (big ? 140 : 220))) * (big ? 24 : 12)) : 0;
+    const size = 16 * FRIEND.scale, left = FRIEND.x - size / 2, top = FRIEND.feet - size + 4 - hop;
+    px(FRIEND.x - 26 + hop / 2, FRIEND.feet + 2, 52 - hop, 4); // pixel shadow
     if (!sprites) return;
     const frameIndex = state.reducedMotion ? 0 : Math.floor(now / 160) % 8;
-    const rows = spriteFrame(sprites, "down", false, frameIndex).frame.rows;
-    const s = FRIEND.scale;
+    const rows = spriteFrame(sprites, "down", false, frameIndex).frame.rows, s = FRIEND.scale;
     const pixels: [number, number][] = [];
-    rows.forEach((row, py) => [...row].forEach((pixel, px) => { if (pixel === "#") pixels.push([px, py]); }));
-    // Canonical look: dark mask with a light one-pixel halo, lit warm by the lantern.
-    ctx.fillStyle = "#ffe9c2";
-    for (const [px, py] of pixels) ctx.fillRect(left + px * s - s, top + py * s - s, s * 3, s * 3);
-    ctx.fillStyle = "#101020";
-    for (const [px, py] of pixels) ctx.fillRect(left + px * s, top + py * s, s, s);
+    rows.forEach((row, py) => [...row].forEach((pixel, pxl) => { if (pixel === "#") pixels.push([pxl, py]); }));
+    for (const [x, y] of pixels) px(left + x * s - s, top + y * s - s, s * 3, s * 3, PAPER);
+    for (const [x, y] of pixels) px(left + x * s, top + y * s, s, s);
   }
 
-  function spawnEmbers(x: number, y: number, now: number, reduced: boolean) {
-    if (reduced || now - lastEmber < 45) return;
-    lastEmber = now;
-    embers.push({ x: x + (Math.random() - 0.5) * 10, y, vx: (Math.random() - 0.5) * 0.4, vy: 0.6 + Math.random() * 0.6, life: 1 });
+  function drawBurst(now: number, x: number, y: number, legendary: boolean) {
+    const turn = now / 1200, count = legendary ? 16 : 10, reach = legendary ? 150 : 95;
+    if (legendary) { ctx.fillStyle = SIGNAL; ctx.beginPath(); ctx.arc(x, y, 62 + Math.round(Math.sin(now / 200) * 6), 0, Math.PI * 2); ctx.fill(); }
+    for (let i = 0; i < count; i++) { const a = turn + i * Math.PI * 2 / count; dottedLine(x + Math.cos(a) * 44, y + Math.sin(a) * 44, x + Math.cos(a) * reach, y + Math.sin(a) * reach, 8); }
   }
 
-  function drawEmbers(dt: number) {
-    embers = embers.filter(ember => (ember.life -= dt / 1400) > 0);
-    for (const ember of embers) {
-      ember.x += ember.vx * dt / 16; ember.y += ember.vy * dt / 16;
-      ctx.fillStyle = `rgba(255,${120 + Math.round(ember.life * 100)},60,${ember.life})`;
-      ctx.fillRect(ember.x, ember.y, 3, 3);
-    }
-  }
-
-  function drawDrifters(now: number, dt: number, reduced: boolean) {
-    for (const drifter of drifters) {
-      if (!reduced) { drifter.y -= drifter.speed * dt / 16; if (drifter.y < -30) drifter.y = 440; }
-      drawLantern(drifter.x + (reduced ? 0 : Math.sin(now / 1200 + drifter.sway) * 8), drifter.y, drifter.size, drifter.paper, 0.8);
-    }
-  }
-
-  function drawConstellation(now: number, inventory: readonly number[], reduced: boolean) {
+  function drawConstellation(inventory: readonly number[]) {
     inventory.forEach((count, kind) => {
-      SKY_SLOTS[kind].slice(0, Math.min(count, 40)).forEach(slot => {
-        drawGift(kind, slot.x, slot.y, kind === 3 ? 8 : 5, reduced ? 0.85 : 0.65 + 0.3 * Math.sin(now / 700 + slot.phase));
-      });
+      const slots = SKY_SLOTS[kind].slice(0, Math.min(count, 30));
+      slots.forEach((slot, i) => { if (i > 0) dottedLine(slots[i - 1].x, slots[i - 1].y, slot.x, slot.y, 7); });
+      slots.forEach(slot => drawIcon(kind, slot.x, slot.y, kind === 3 ? 3 : 2));
     });
   }
 
-  let previous = 0;
   return {
     /** A launched lantern keeps drifting in the background for the rest of the session. */
-    addDrifter(paper: string) {
-      if (drifters.length >= 24) drifters.shift();
-      drifters.push({ x: 60 + Math.random() * 840, y: 150 + Math.random() * 280, speed: 0.1 + Math.random() * 0.12, sway: Math.random() * 6, size: 0.3 + Math.random() * 0.25, paper });
+    addDrifter(pattern: Pattern) {
+      if (drifters.length >= 18) drifters.shift();
+      drifters.push({ x: 60 + Math.random() * 840, y: 130 + Math.random() * 230, speed: 0.08 + Math.random() * 0.1, size: 0.35 + Math.random() * 0.2, pattern });
     },
     draw(now: number, state: SceneState) {
       const dt = previous ? Math.min(64, now - previous) : 16; previous = now;
+      const frame = state.reducedMotion ? 1 : Math.floor(now / 250);
       ctx.setTransform(canvas.width / VIEW.width, 0, 0, canvas.height / VIEW.height, 0, 0);
-      drawSky(now, state.reducedMotion);
-      drawConstellation(now, state.inventory, state.reducedMotion);
-      drawDrifters(now, dt, state.reducedMotion);
+      ctx.imageSmoothingEnabled = false;
+      drawSky(frame);
+      drawConstellation(state.inventory);
+      for (const drifter of drifters) {
+        if (!state.reducedMotion) { drifter.y -= drifter.speed * dt / 16; if (drifter.y < 20) drifter.y = 380; }
+        drawLantern(drifter.x + (state.reducedMotion ? 0 : Math.round(Math.sin(now / 1300 + drifter.x) * 6)), drifter.y, drifter.size, drifter.pattern, 1);
+      }
       drawLand();
       const elapsed = now - state.phaseStart;
       if (state.phase === "idle" || state.phase === "charging") {
-        const light = state.phase === "charging" ? state.charge : 0;
-        if (state.holding || state.phase === "charging") drawLantern(HELD.x, HELD.y, 1.3, state.paper, light);
+        if (state.holding || state.phase === "charging") {
+          const shake = state.phase === "charging" && !state.reducedMotion && state.charge < 1 ? Math.round(Math.sin(now / 30) * state.charge * 2) : 0;
+          drawLantern(HELD.x + shake, HELD.y, 1.3, state.pattern, state.phase === "charging" ? state.charge : 0, now, true);
+        }
       } else if (state.phase === "rising") {
-        const progress = Math.min(1, elapsed / riseMs(state.reducedMotion));
-        const at = lanternPath(progress);
-        drawLantern(at.x, at.y, at.scale * 1.3, state.paper, 1);
-        spawnEmbers(at.x, at.y + 20 * at.scale, now, state.reducedMotion);
-        ctx.globalAlpha = Math.max(0, 1 - progress * 1.2); ctx.fillStyle = "#ffb070"; ctx.font = "bold 16px ui-monospace, monospace"; ctx.textAlign = "center";
-        ctx.fillText("0.1 RF wick burned", at.x, at.y + 50 * at.scale + 14); ctx.globalAlpha = 1;
+        const progress = Math.min(1, elapsed / riseMs(state.reducedMotion)), at = lanternPath(progress);
+        for (let t = 0; t < progress - 0.04; t += 0.05) { const p = lanternPath(t); px(p.x - 1, p.y + 30 * p.scale, 2, 2); }
+        drawLantern(at.x, at.y, at.scale, state.pattern, 1, now, true);
+        if (!state.reducedMotion && now - lastEmber > 60) { lastEmber = now; embers.push({ x: at.x + (Math.random() - 0.5) * 12, y: at.y + 22 * at.scale, vy: 0.8 + Math.random() * 0.7, life: 1 }); }
+        if (progress < 0.75) {
+          ctx.font = "bold 14px ui-monospace, SFMono-Regular, Menlo, monospace"; ctx.textAlign = "center";
+          const label = "0.1 RF wick burned", w = Math.round(ctx.measureText(label).width + 14), lx = Math.round(at.x + 60 * at.scale + w / 2), ly = Math.round(at.y);
+          px(lx - w / 2, ly - 12, w, 22, INK); px(lx - w / 2 + 2, ly - 10, w - 4, 18, PAPER);
+          ctx.fillStyle = INK; ctx.fillText(label, lx, ly + 3);
+        }
       } else if (state.phase === "descending" && state.outcome !== null) {
-        const progress = ease(elapsed / descendMs(state.reducedMotion));
-        const end = lanternPath(1);
-        drawGift(state.outcome, end.x + (HELD.x - end.x) * progress, end.y + (HELD.y + 20 - end.y) * progress, 16, 1);
+        const progress = ease(elapsed / descendMs(state.reducedMotion)), end = lanternPath(1);
+        const x = end.x + (HELD.x - end.x) * progress, y = end.y + (HELD.y - end.y) * progress;
+        if (y - 30 > end.y) dottedLine(end.x, end.y, x, y - 30, 12);
+        drawIcon(state.outcome, x, y, 4, now);
       } else if (state.phase === "reveal" && state.outcome !== null) {
-        drawGift(state.outcome, HELD.x, HELD.y + 20, 18, 1);
+        if (state.outcome >= 2 && !state.reducedMotion) drawBurst(now, HELD.x, HELD.y, state.outcome === 3);
+        drawIcon(state.outcome, HELD.x, HELD.y, 5, now);
       }
-      drawEmbers(dt);
+      embers = embers.filter(ember => (ember.life -= dt / 1300) > 0);
+      for (const ember of embers) { ember.y += ember.vy * dt / 16; px(ember.x, ember.y, 3, 3); }
       drawFriend(now, state);
     },
   };

@@ -6,7 +6,9 @@ import { formatGameAmount } from "@rarefriends/friendsdk/ui";
 import { expectedReward, maximumPrize, type GamePlay, type GameSnapshot } from "@rarefriends/friendsdk/game";
 import { createFriendReader, type GenerationSprites } from "@rarefriends/friendsdk/sprites";
 import { createFriendSoundKit, type FriendSoundCue, type FriendSoundKit } from "@rarefriends/friendsdk/sounds";
-import { createScene, descendMs, riseMs, TIMING, type Phase, type SceneState } from "./scene.js";
+import { GameMenu } from "@rarefriends/friendsdk/frame";
+import { createScene, descendMs, riseMs, TIMING, type Pattern, type Phase, type SceneState } from "./scene.js";
+import "@rarefriends/friendsdk/frame.css";
 import "./style.css";
 
 /** Proposed live split: this share of every lantern is burned; the rest funds the gift pool. */
@@ -19,23 +21,23 @@ const REACTION = [
   "can't believe it. The Golden Lantern came home!",
 ] as const;
 const REVEAL_CUE: readonly FriendSoundCue[] = ["reveal-common", "reveal-common", "reveal-rare", "reveal-legendary"];
-const PAPERS = [
-  { name: "Festival amber", color: "#ffb347", unlock: 0 },
-  { name: "Rose paper", color: "#ff7aa8", unlock: 3 },
-  { name: "Jade paper", color: "#6fe3b5", unlock: 8 },
-  { name: "Moonlight paper", color: "#cfd8ff", unlock: 15 },
-] as const;
+const PAPERS: readonly { name: string; pattern: Pattern; unlock: number }[] = [
+  { name: "Plain paper", pattern: "plain", unlock: 0 },
+  { name: "Striped paper", pattern: "stripes", unlock: 3 },
+  { name: "Dotted paper", pattern: "dots", unlock: 8 },
+  { name: "Checked paper", pattern: "checks", unlock: 15 },
+];
 type Panel = "gifts" | "festival" | "settings" | null;
 const rf = (value: bigint) => `${formatGameAmount(value, 18)} RF`;
 
-function Dialog({ title, onClose, children, top }: { title: string; onClose?: () => void; children: ReactNode; top?: boolean }) {
+/** Gift card placed above the scene so the Friend's reaction stays visible. */
+function RevealCard({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => { ref.current?.querySelector<HTMLElement>("button, input")?.focus(); }, []);
-  return <div className={`ln-dialog-backdrop${top ? " is-top" : ""}`} onKeyDown={event => { if (event.key === "Escape" && onClose) { event.stopPropagation(); onClose(); } }}>
-    <div ref={ref} className="ln-dialog" role="dialog" aria-modal="true" aria-label={title}>
-      <header><h2>{title}</h2>{onClose && <button type="button" className="ln-close" onClick={onClose} aria-label="Close">×</button>}</header>
-      <div className="ln-dialog-body">{children}</div>
-    </div>
+  useEffect(() => { ref.current?.querySelector<HTMLElement>("button")?.focus(); }, []);
+  return <div ref={ref} className="ln-reveal-card" role="dialog" aria-modal="true" aria-label={title}
+    onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); onClose(); } }}>
+    <header><h2>{title}</h2><button type="button" className="ln-close" onClick={onClose} aria-label="Close">×</button></header>
+    {children}
   </div>;
 }
 
@@ -53,7 +55,7 @@ export default function LanternNight({ friendId, client, paused }: GameComponent
   const locked = useRef(false), epoch = useRef(0);
   // Scene values read by the animation loop without re-rendering every frame.
   const live = useRef({ phase: "idle" as Phase, phaseStart: 0, charge: 0, chargeFrom: 0, outcome: null as number | null, clock: 0, cueSent: false });
-  const props = useRef({ paused, reducedMotion, inventory: [] as number[], paper: PAPERS[0].color as string, holding: false });
+  const props = useRef({ paused, reducedMotion, inventory: [] as number[], pattern: "plain" as Pattern, holding: false });
   const ready = snapshot !== null;
   const onPhaseEnd = useRef<(phase: Phase) => void>(() => {});
   const sceneRef = useRef<ReturnType<typeof createScene> | null>(null);
@@ -84,7 +86,7 @@ export default function LanternNight({ friendId, client, paused }: GameComponent
   }, [friendId, artRevision]);
 
   useEffect(() => {
-    props.current = { paused, reducedMotion, inventory: snapshot ? snapshot.inventory.map(Number) : [], paper: PAPERS[paper].color,
+    props.current = { paused, reducedMotion, inventory: snapshot ? snapshot.inventory.map(Number) : [], pattern: PAPERS[paper].pattern,
       holding: Boolean(snapshot && snapshot.consumables > 0n) };
   }, [paused, reducedMotion, snapshot, paper]);
 
@@ -106,7 +108,7 @@ export default function LanternNight({ friendId, client, paused }: GameComponent
       if (state.phase === "rising" && elapsed >= riseMs(options.reducedMotion)) onPhaseEnd.current("rising");
       else if (state.phase === "descending" && elapsed >= descendMs(options.reducedMotion)) onPhaseEnd.current("descending");
       const sceneState: SceneState = { phase: state.phase, phaseStart: state.phaseStart, charge: state.charge, outcome: state.outcome,
-        holding: options.holding, inventory: options.inventory, paper: options.paper, reducedMotion: options.reducedMotion };
+        holding: options.holding, inventory: options.inventory, pattern: options.pattern, reducedMotion: options.reducedMotion };
       scene.draw(state.clock, sceneState);
       frame = requestAnimationFrame(render);
     };
@@ -175,7 +177,7 @@ export default function LanternNight({ friendId, client, paused }: GameComponent
       const next = lit + 1; setLit(next);
       const newPaper = PAPERS.find(item => item.unlock === next);
       if (newPaper) setMessage(`Unlocked ${newPaper.name}. Choose it in Festival.`);
-      sceneRef.current?.addDrifter(PAPERS[paper].color);
+      sceneRef.current?.addDrifter(PAPERS[paper].pattern);
       moveTo("rising");
     }).then(ok => { if (!ok && live.current.phase === "charging") moveTo("idle"); });
   }
@@ -186,9 +188,9 @@ export default function LanternNight({ friendId, client, paused }: GameComponent
 
   let action: ReactNode;
   if (!sprites) action = null;
-  else if (pending && phase === "idle") action = <button type="button" className="ln-primary" disabled={blocked} onClick={() => release(true)}>Finish your lantern</button>;
+  else if (pending && phase === "idle") action = <button type="button" className="rf-frame-primary ln-primary" disabled={blocked} onClick={() => release(true)}>Finish your lantern</button>;
   else if (snapshot.consumables === 0n && phase === "idle") action = <div className="ln-buy">
-    <button type="button" className="ln-primary" disabled={blocked || !canBuy(1n)} onClick={() => buy(1n)}>Buy a lantern · {rf(definition.price)}</button>
+    <button type="button" className="rf-frame-primary ln-primary" disabled={blocked || !canBuy(1n)} onClick={() => buy(1n)}>Buy a lantern · {rf(definition.price)}</button>
     <button type="button" disabled={blocked || !canBuy(5n)} onClick={() => buy(5n)}>Buy 5</button>
   </div>;
   else if (phase === "idle" || phase === "charging") action = <button type="button" className={`ln-primary ln-hold${charging ? " is-charging" : ""}`} disabled={blocked}
@@ -225,27 +227,26 @@ export default function LanternNight({ friendId, client, paused }: GameComponent
       <p className="ln-status" role={error ? "alert" : "status"}>{status}</p>
       {action}
     </div>
-    {phase === "reveal" && outcome && result?.outcomeId && <Dialog title={`${outcome.name} · ${RARITY[result.outcomeId - 1]}`} onClose={closeReveal} top>
+    {phase === "reveal" && outcome && result?.outcomeId && <RevealCard title={`${outcome.name} · ${RARITY[result.outcomeId - 1]}`} onClose={closeReveal}>
       <div className={`ln-reveal rarity-${result.outcomeId}`}>
         <p className="ln-rarity">{outcome.chanceBps / 100}% chance</p>
         <p>Friend #{friendId.toString()} {REACTION[result.outcomeId - 1]}</p>
         <p className="ln-value">Worth {rf(outcome.reward)} <small>(simulated)</small></p>
-        <p className="ln-note">Kept gifts join your night sky and hold their fixed RF value with no expiry.</p>
-        <div className="ln-row">
-          <button type="button" className="ln-primary" onClick={closeReveal}>Keep in the sky</button>
+                <div className="ln-row">
+          <button type="button" className="rf-frame-primary ln-primary" onClick={closeReveal}>Keep in the sky</button>
           <button type="button" disabled={busy} onClick={() => redeem(result.outcomeId!, closeReveal)}>Redeem · {rf(outcome.reward)}</button>
         </div>
       </div>
-    </Dialog>}
-    {panel === "gifts" && <Dialog title="Your night sky" onClose={() => setPanel(null)}>
+    </RevealCard>}
+    {panel === "gifts" && <GameMenu title="Your night sky" onClose={() => setPanel(null)}>
       <p>Gifts you keep shine above the hill. Redeem any of them for their fixed simulated value.</p>
       {definition.outcomes.map((item, index) => <div className="ln-item" key={item.name}>
         <span><strong>{item.name}</strong><small>{snapshot.inventory[index].toString()} kept · {rf(item.reward)} each</small></span>
         <button type="button" disabled={busy || paused || snapshot.inventory[index] === 0n} onClick={() => redeem(index + 1)}>Redeem one</button>
       </div>)}
       <p className="ln-status" role={error ? "alert" : "status"}>{status}</p>
-    </Dialog>}
-    {panel === "festival" && <Dialog title="How the festival works" onClose={() => setPanel(null)}>
+    </GameMenu>}
+    {panel === "festival" && <GameMenu title="How the festival works" onClose={() => setPanel(null)}>
       <p>Buy a lantern for {rf(definition.price)}, hold to light it, and release. As it rises, the wick burns {rf(WICK)}.
         The rest of the price funds a gift pool, and every lantern returns exactly one gift.</p>
       <table><thead><tr><th>Gift</th><th>Chance</th><th>Value</th></tr></thead><tbody>
@@ -253,18 +254,18 @@ export default function LanternNight({ friendId, client, paused }: GameComponent
       </tbody></table>
       <p>Expected gift value: {rf(expectedReward(definition))} per lantern. Burned per lantern: {rf(WICK)}. Every purchased lantern reserves the top gift ({rf(maxPrize)}).</p>
       <h3>Lantern papers</h3>
-      <p>Lighting more lanterns unlocks new paper colours. Papers are cosmetic only.</p>
+      <p>Lighting more lanterns unlocks new paper patterns. Papers are cosmetic only.</p>
       <div className="ln-papers">{PAPERS.map((item, index) => <button type="button" key={item.name} aria-pressed={paper === index} disabled={index >= unlocked}
-        onClick={() => setPaper(index)}><i style={{ background: item.color }} />{item.name}<small>{index >= unlocked ? `Light ${item.unlock}` : paper === index ? "In use" : "Use"}</small></button>)}</div>
+        onClick={() => setPaper(index)}><i className={`ln-swatch is-${item.pattern}`} />{item.name}<small>{index >= unlocked ? `Light ${item.unlock}` : paper === index ? "In use" : "Use"}</small></button>)}</div>
       <p className="ln-note">Everything here is simulated. In this preview the SDK prize pool receives the full price; the {rf(WICK)} wick burn is the proposed split for a live contract.
         This session: {lit} lanterns lit, {rf(burned)} marked as burned.</p>
-    </Dialog>}
-    {panel === "settings" && <Dialog title="Settings" onClose={() => setPanel(null)}>
+    </GameMenu>}
+    {panel === "settings" && <GameMenu title="Settings" onClose={() => setPanel(null)}>
       <button type="button" aria-pressed={!muted} onClick={() => { const next = !muted; setMuted(next); sound.current?.setMuted(next); if (!next) void sound.current?.unlock(); }}>{muted ? "Sound off" : "Sound on"}</button>
       <label><input type="checkbox" checked={reducedMotion} onChange={event => setReducedMotion(event.target.checked)} /> Reduce motion</label>
       <label><input type="checkbox" checked={tapToLight} onChange={event => setTapToLight(event.target.checked)} /> One tap lights a lantern (no holding)</label>
       <p className="ln-note">Controls: hold the button, Space or Enter (or press and hold the sky) until the lantern glows, then release.
         Balances, gifts and burns are simulated and reset on reload. Wallet connection and Friend ownership are verified by the SDK runtime.</p>
-    </Dialog>}
+    </GameMenu>}
   </section>;
 }

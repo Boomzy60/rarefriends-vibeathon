@@ -51,7 +51,7 @@ Gameplay stops while the runtime shows a menu or confirmation.
 | Consumable | One lantern gives exactly one gift |
 | Backing | Each purchased or pending lantern reserves 3 RF; kept gifts reserve their fixed value |
 | Redemption | Fixed value, no expiry |
-| Lantern papers | Cosmetic colours unlocked after 3, 8 and 15 lanterns lit; no RF value |
+| Lantern papers | Cosmetic ink patterns (striped, dotted, checked) unlocked after 3, 8 and 15 lanterns lit; no RF value |
 
 Where each 1 RF goes in the proposed live split: 0.10 RF burned, 0.85 RF
 expected back to players as gifts, 0.05 RF retained by the gift pool.
@@ -64,6 +64,6 @@ reset when you reload.
 
 ## Assets
 
-All scenery, lanterns and gifts are drawn procedurally on canvas in `scene.ts`.
+All scenery, lanterns and gifts are drawn procedurally on canvas in `scene.ts`, in the SDK's one-bit style: white paper, black ink and signal green (`#ccff00`) reserved for lantern light. Menus use the SDK `GameMenu`.
 The Friend is rendered from its canonical on-chain sprite through
 `@rarefriends/friendsdk/sprites`, and sound cues come from the SDK sound kit.

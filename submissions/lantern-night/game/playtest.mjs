@@ -36,7 +36,7 @@ console.log(await testGame(new URL(".", import.meta.url).pathname, {
     }
     await page.waitForTimeout(1500); await shot(page, "6-sky");
     await game.getByRole("button", { name: "Festival" }).click();
-    await game.getByRole("button", { name: /Rose paper/ }).click();
+    await game.getByRole("button", { name: /Striped paper/ }).click();
     await shot(page, "7-festival");
     await page.keyboard.press("Escape");
     await game.getByRole("button", { name: /^Sky/ }).click(); await shot(page, "8-gifts");
